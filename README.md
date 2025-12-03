@@ -9,8 +9,12 @@ A production-ready RAG (Retrieval-Augmented Generation) search engine with seman
 - **Hybrid Search**: Combines local vector search with live web search for comprehensive answers
 - **10-K Financial Data**: Pre-indexed SEC 10-K filings for financial analysis queries
 - **Web Search Fallback**: DuckDuckGo integration for current events and external company data
-- **Streamlit Web UI**: Interactive frontend with search history, cache statistics, and debug mode
+- **Multiple Frontends**:
+  - **Next.js Web Client**: Modern React-based UI with Tailwind CSS and shadcn/ui components
+  - **Streamlit Web UI**: Interactive Python frontend with search history, cache statistics, and debug mode
+- **FastAPI REST API**: Full-featured API server with endpoints for search, embeddings, ingestion, and cache management
 - **CLI Interface**: Full-featured command-line interface for scripting and automation
+- **Redis Support**: Optional Redis-backed semantic cache for distributed deployments
 
 ## Architecture
 
@@ -214,7 +218,41 @@ flowchart TD
 
 ## Usage
 
-### Web Interface (Streamlit)
+### FastAPI Server + Next.js Client (Recommended)
+
+**1. Start the FastAPI backend:**
+
+```bash
+# With environment variables for Apple Silicon
+PYTORCH_ENABLE_MPS_FALLBACK=1 TOKENIZERS_PARALLELISM=false uvicorn api:app --reload --port 8000
+```
+
+Opens at `http://localhost:8000` with:
+- `POST /search` - RAG search endpoint
+- `POST /embed` - Single text embedding
+- `POST /embed/batch` - Batch embeddings
+- `POST /ingest/text` - Chunk and embed text
+- `POST /ingest/pdf` - Extract and embed PDF
+- `POST /ingest/qdrant` - Store in Qdrant
+- `GET /cache/stats` - Cache statistics
+- `POST /cache/clear` - Clear cache
+- `GET /health` - Health check
+
+**2. Start the Next.js frontend:**
+
+```bash
+cd web-client
+npm install
+npm run dev
+```
+
+Opens at `http://localhost:3000` with:
+- Modern search interface
+- Real-time cache statistics
+- Search history
+- Source document viewer
+
+### Streamlit Interface
 
 ```bash
 streamlit run app.py
@@ -312,22 +350,67 @@ Environment variables (via `.env` file):
 ## Project Structure
 
 ```
-agenticSearchEngine/
-├── app.py                  # Streamlit web interface
-├── main.py                 # CLI entry point
-├── rag_pipeline.py         # Main orchestration pipeline
-├── router.py               # Intelligent query routing
-├── vector_store.py         # Qdrant vector database manager
-├── semantic_cache.py       # FAISS-based semantic cache
-├── web_search.py           # DuckDuckGo integration
-├── embedding_provider.py   # Shared embedding model singleton
-├── config.py               # Configuration management
-├── requirements.txt        # Python dependencies
-├── qdrant_data/            # Pre-indexed vector data
+agentic-search-engine/
+├── app.py                      # Streamlit entry point
+├── main.py                     # CLI entry point
+├── api.py                      # FastAPI server (REST API)
+├── requirements.txt            # Python dependencies
+├── pyproject.toml              # Python project config
+├── .env.example                # Environment template
+├── .gitignore                  # Git ignore rules
+│
+├── src/                        # Python source code
+│   └── agentic_search/         # Main package
+│       ├── __init__.py
+│       ├── cache/              # Semantic caching
+│       │   ├── semantic_cache.py      # FAISS + JSON cache
+│       │   └── redis_cache.py         # Redis-backed cache
+│       ├── config/             # Configuration
+│       │   ├── settings.py            # Environment settings
+│       │   └── factory.py             # Pipeline factory
+│       ├── core/               # Core models
+│       │   ├── models.py              # Data models (SearchResult, etc.)
+│       │   └── base.py                # Base interfaces
+│       ├── embeddings/         # Embedding models
+│       │   └── sentence_transformer.py
+│       ├── llm/                # LLM providers
+│       │   └── openai_llm.py          # OpenAI GPT integration
+│       ├── pipeline/           # RAG orchestration
+│       │   └── rag_pipeline.py        # Main pipeline
+│       ├── retrievers/         # Document retrieval
+│       │   ├── qdrant_retriever.py    # Vector store retrieval
+│       │   └── web_search.py          # DuckDuckGo search
+│       ├── routers/            # Query routing
+│       │   ├── rule_based.py          # Keyword-based routing
+│       │   ├── llm_router.py          # LLM-based routing
+│       │   └── composite.py           # Combined router
+│       └── ui/                 # User interfaces
+│           ├── streamlit_app.py       # Streamlit UI
+│           └── cli.py                 # CLI interface
+│
+├── web-client/                 # Next.js frontend
+│   ├── src/
+│   │   ├── app/                # Next.js App Router
+│   │   │   ├── page.tsx               # Main search page
+│   │   │   ├── layout.tsx             # Root layout
+│   │   │   └── globals.css            # Global styles
+│   │   ├── components/         # React components
+│   │   │   └── ui/                    # shadcn/ui components
+│   │   └── lib/                # Utilities
+│   │       └── utils.ts               # Helper functions
+│   ├── package.json            # Node dependencies
+│   ├── tailwind.config.ts      # Tailwind CSS config
+│   └── tsconfig.json           # TypeScript config
+│
+├── docs/                       # Documentation
+│   └── workflow-diagram.md     # Mermaid architecture diagrams
+│
+├── qdrant_data/                # Pre-indexed vector data
 │   └── collection/
-│       ├── 10k_data/       # 10-K financial filings
-│       └── opnai_data/     # OpenAI documentation
-└── semantic_cache.json     # Persistent cache storage
+│       ├── 10k_data/           # 10-K financial filings
+│       └── opnai_data/         # OpenAI documentation
+│
+└── examples/                   # Example scripts
 ```
 
 ## Key Components
