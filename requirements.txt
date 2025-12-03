@@ -1,0 +1,27 @@
+# Agentic Search Engine dependencies
+
+# Core
+python-dotenv>=1.0.0
+numpy>=1.24.0
+
+# LLM
+openai>=1.0.0
+
+# Vector Store
+qdrant-client>=1.7.0
+
+# Embeddings & Semantic Cache
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.4
+torch>=2.0.0
+transformers>=4.35.0
+einops>=0.7.0
+
+# Web Search
+ddgs>=9.0.0
+
+# Frontend
+streamlit>=1.28.0
+
+# Utilities
+tqdm>=4.65.0

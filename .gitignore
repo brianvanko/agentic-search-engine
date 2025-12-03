@@ -1,0 +1,69 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+ENV/
+.eggs/
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node.js
+node_modules/
+.npm
+.pnp
+.pnp.js
+
+# Next.js (web-client)
+web-client/.next/
+web-client/out/
+web-client/build/
+
+# Cache files
+*.cache
+.cache/
+semantic_cache.json
+semantic_cache_data/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+coverage/
+
+# Qdrant local data (optional - uncomment if you want to ignore)
+# qdrant_data/
+
+# Redis dump
+dump.rdb
