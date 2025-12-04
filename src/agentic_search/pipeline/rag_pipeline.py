@@ -3,7 +3,8 @@
 import logging
 import re
 import time
-from typing import List, Dict, Any, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Dict, Any, Optional, Tuple
 
 from agentic_search.core.interfaces import (
     BaseLLM,
@@ -186,13 +187,31 @@ Answer:"""
             timing=timing,
         )
 
+    def _retrieve_from_single(
+        self,
+        retriever_name: str,
+        query: str,
+        top_k: int,
+    ) -> Tuple[str, List[Document]]:
+        """Retrieve from a single retriever (for parallel execution)."""
+        retriever = self._retrievers.get(retriever_name)
+        if not retriever:
+            return retriever_name, []
+        try:
+            docs = retriever.retrieve(query, top_k=top_k)
+            logger.debug(f"Retrieved {len(docs)} from {retriever_name}")
+            return retriever_name, docs
+        except Exception as e:
+            logger.warning(f"Retriever {retriever_name} failed: {e}")
+            return retriever_name, []
+
     def _retrieve_documents(
         self,
         query: str,
         routing: Any,
         top_k: int,
     ) -> List[Document]:
-        """Retrieve documents based on routing decision."""
+        """Retrieve documents based on routing decision using parallel execution."""
         documents = []
 
         # Determine which retrievers to use
@@ -210,16 +229,25 @@ Answer:"""
         # Calculate per-retriever limit for hybrid
         per_retriever_k = max(1, top_k // len(target_retrievers)) if target_retrievers else top_k
 
-        # Retrieve from each target
-        for retriever_name in target_retrievers:
-            retriever = self._retrievers.get(retriever_name)
-            if retriever:
-                try:
-                    docs = retriever.retrieve(query, top_k=per_retriever_k)
+        # Filter to valid retrievers
+        valid_retrievers = [r for r in target_retrievers if r in self._retrievers]
+
+        if len(valid_retrievers) == 1:
+            # Single retriever - no need for thread pool overhead
+            _, docs = self._retrieve_from_single(valid_retrievers[0], query, per_retriever_k)
+            documents.extend(docs)
+        elif len(valid_retrievers) > 1:
+            # Multiple retrievers - use parallel execution
+            with ThreadPoolExecutor(max_workers=len(valid_retrievers)) as executor:
+                futures = {
+                    executor.submit(
+                        self._retrieve_from_single, name, query, per_retriever_k
+                    ): name
+                    for name in valid_retrievers
+                }
+                for future in as_completed(futures):
+                    retriever_name, docs = future.result()
                     documents.extend(docs)
-                    logger.debug(f"Retrieved {len(docs)} from {retriever_name}")
-                except Exception as e:
-                    logger.warning(f"Retriever {retriever_name} failed: {e}")
 
         logger.info(f"Total documents retrieved: {len(documents)}")
         return documents

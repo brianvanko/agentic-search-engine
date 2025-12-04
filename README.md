@@ -9,12 +9,16 @@ A production-ready RAG (Retrieval-Augmented Generation) search engine with seman
 - **Hybrid Search**: Combines local vector search with live web search for comprehensive answers
 - **10-K Financial Data**: Pre-indexed SEC 10-K filings for financial analysis queries
 - **Web Search Fallback**: DuckDuckGo integration for current events and external company data
+- **Multiple LLM Providers**: Support for OpenAI, Anthropic (Claude), and Ollama (local models)
 - **Multiple Frontends**:
   - **Next.js Web Client**: Modern React-based UI with Tailwind CSS and shadcn/ui components
   - **Streamlit Web UI**: Interactive Python frontend with search history, cache statistics, and debug mode
 - **FastAPI REST API**: Full-featured API server with endpoints for search, embeddings, ingestion, and cache management
 - **CLI Interface**: Full-featured command-line interface for scripting and automation
 - **Redis Support**: Optional Redis-backed semantic cache for distributed deployments
+- **Structured Logging**: JSON-formatted logs with request ID tracking for observability
+- **Parallel Retrieval**: Concurrent document retrieval from multiple sources for faster responses
+- **Configurable CORS**: Environment-based CORS configuration for flexible deployments
 
 ## Architecture
 
@@ -29,7 +33,9 @@ flowchart TB
     subgraph "Semantic Cache Layer"
         SC[Semantic Cache]
         FAISS[(FAISS Index)]
+        REDIS[(Redis)]
         SC --> FAISS
+        SC -.->|optional| REDIS
     end
 
     subgraph "LLM Routing Layer"
@@ -48,8 +54,8 @@ flowchart TB
 
     subgraph "Generation Layer"
         RAG[RAG Pipeline]
-        GPT[OpenAI GPT]
-        RAG --> GPT
+        LLM_GEN[LLM<br/>OpenAI/Anthropic/Ollama]
+        RAG --> LLM_GEN
     end
 
     U --> SC
@@ -76,7 +82,7 @@ sequenceDiagram
     participant R as LLM Router (GPT-4o-mini)
     participant V as Vector Store
     participant W as Web Search
-    participant L as LLM (GPT)
+    participant L as LLM (OpenAI/Anthropic/Ollama)
 
     U->>P: Submit Query
     P->>C: Lookup Query
@@ -119,16 +125,25 @@ graph LR
     subgraph "Core Components"
         CONFIG[settings.py<br/>Configuration]
         EP[sentence_transformer.py<br/>Shared Embeddings]
+        LOG[logging.py<br/>Structured Logging]
+        MW[middleware.py<br/>Request Tracking]
     end
 
     subgraph "Data Layer"
         VS[qdrant_retriever.py<br/>Qdrant Manager]
         SC[semantic_cache.py<br/>FAISS Cache]
+        RC[redis_cache.py<br/>Redis Cache]
     end
 
     subgraph "Intelligence Layer"
         RT[llm_router.py<br/>LLM Router<br/>GPT-4o-mini]
         WS[web_search.py<br/>DuckDuckGo]
+    end
+
+    subgraph "LLM Providers"
+        OAI[openai_llm.py<br/>OpenAI]
+        ANT[anthropic_llm.py<br/>Anthropic]
+        OLL[ollama_llm.py<br/>Ollama]
     end
 
     subgraph "Orchestration"
@@ -144,16 +159,23 @@ graph LR
     CONFIG --> EP
     CONFIG --> VS
     CONFIG --> SC
+    CONFIG --> RC
     CONFIG --> RT
     CONFIG --> WS
+    LOG --> API
+    MW --> API
 
     EP --> VS
     EP --> SC
 
     VS --> RAG
     SC --> RAG
+    RC -.-> RAG
     RT --> RAG
     WS --> RAG
+    OAI --> RAG
+    ANT -.-> RAG
+    OLL -.-> RAG
 
     RAG --> APP
     RAG --> CLI
@@ -344,11 +366,19 @@ Environment variables (via `.env` file):
 | `QDRANT_PATH` | `./qdrant_data` | Path to Qdrant vectors |
 | `EMBEDDING_MODEL` | `nomic-ai/nomic-embed-text-v1.5` | Sentence transformer model |
 | `TOP_K_RESULTS` | `5` | Default documents to retrieve |
+| `CACHE_BACKEND` | `json` | Cache backend: `json` or `redis` |
 | `CACHE_SIMILARITY_THRESHOLD` | `0.78` | Semantic cache threshold |
 | `CACHE_MAX_SIZE` | `10000` | Maximum cache entries |
+| `REDIS_URL` | `redis://localhost:6379` | Redis connection URL |
+| `REDIS_DB` | `0` | Redis database number |
+| `REDIS_TTL_SECONDS` | (none) | Optional TTL for cached entries |
 | `WEB_SEARCH_TIMEOUT` | `10` | Web search timeout (seconds) |
 | `ENABLE_WEB_SEARCH` | `true` | Enable web search by default |
-| `LOG_LEVEL` | `INFO` | Logging level |
+| `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
+| `LOG_FORMAT` | `standard` | Log format: `standard` or `json` |
+| `LOG_JSON` | `false` | Enable JSON-formatted logs |
+| `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001` | Allowed CORS origins (comma-separated or `*`) |
+| `CORS_ALLOW_CREDENTIALS` | `true` | Allow credentials in CORS requests |
 
 ## Project Structure
 
@@ -371,13 +401,18 @@ agentic-search-engine/
 │       ├── config/             # Configuration
 │       │   ├── settings.py            # Environment settings
 │       │   └── factory.py             # Pipeline factory
-│       ├── core/               # Core models
+│       ├── core/               # Core utilities
 │       │   ├── models.py              # Data models (SearchResult, etc.)
-│       │   └── base.py                # Base interfaces
+│       │   ├── base.py                # Base interfaces
+│       │   ├── logging.py             # Structured logging (JSON + request IDs)
+│       │   ├── middleware.py          # FastAPI middleware (RequestIDMiddleware)
+│       │   └── exceptions.py          # Custom exceptions
 │       ├── embeddings/         # Embedding models
 │       │   └── sentence_transformer.py
 │       ├── llm/                # LLM providers
-│       │   └── openai_llm.py          # OpenAI GPT integration
+│       │   ├── openai_llm.py          # OpenAI GPT integration
+│       │   ├── anthropic_llm.py       # Anthropic Claude integration
+│       │   └── ollama_llm.py          # Ollama local models
 │       ├── pipeline/           # RAG orchestration
 │       │   └── rag_pipeline.py        # Main pipeline
 │       ├── retrievers/         # Document retrieval

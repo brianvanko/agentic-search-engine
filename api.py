@@ -19,7 +19,6 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import sys
 from pathlib import Path
 from typing import List, Optional
-import logging
 
 # Add src to path
 src_path = Path(__file__).parent / "src"
@@ -34,10 +33,18 @@ import time
 
 from agentic_search.embeddings import SentenceTransformerEmbedding
 from agentic_search.config.settings import Settings
+from agentic_search.core.logging import configure_logging, get_logger
+from agentic_search.core.middleware import RequestIDMiddleware
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Load settings first for logging configuration
+_settings = Settings()
+
+# Configure structured logging (use LOG_JSON=true for JSON output)
+configure_logging(
+    level=_settings.log_level,
+    json_format=_settings.log_json or _settings.log_format == "json",
+)
+logger = get_logger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -46,18 +53,24 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Enable CORS for Next.js frontend
+# Add request ID middleware (must be added before CORS for proper ordering)
+# This adds X-Request-ID to all requests/responses and enables request tracing
+app.add_middleware(RequestIDMiddleware)
+
+# Enable CORS with configurable origins
+# Set CORS_ORIGINS env var to customize (comma-separated list or "*" for all)
+# Default: "http://localhost:3000,http://localhost:3001"
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001"],
-    allow_credentials=True,
+    allow_origins=_settings.cors_origins,
+    allow_credentials=_settings.cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+logger.info(f"CORS configured with origins: {_settings.cors_origins}")
 
 # Global singletons (lazy loaded)
 _embedding_model = None
-_settings = None
 _cache = None
 _pipeline = None
 

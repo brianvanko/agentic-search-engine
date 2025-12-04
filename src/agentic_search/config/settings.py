@@ -34,6 +34,29 @@ def _safe_bool(value: str, default: bool) -> bool:
     return value.lower() in ("true", "1", "yes", "on")
 
 
+def _parse_cors_origins(value: str) -> List[str]:
+    """Parse comma-separated CORS origins.
+
+    Supports:
+    - "*" for all origins
+    - Comma-separated URLs: "http://localhost:3000,http://example.com"
+    - Also includes 127.0.0.1 variants for localhost entries
+    """
+    if not value or value.strip() == "*":
+        return ["*"]
+
+    origins = []
+    for origin in value.split(","):
+        origin = origin.strip()
+        if origin:
+            origins.append(origin)
+            # Add 127.0.0.1 variant for localhost entries
+            if "localhost" in origin:
+                origins.append(origin.replace("localhost", "127.0.0.1"))
+
+    return origins if origins else ["*"]
+
+
 @dataclass
 class Settings:
     """Configuration settings with environment variable support.
@@ -107,7 +130,26 @@ class Settings:
     top_k_results: int = field(
         default_factory=lambda: _safe_int(os.getenv("TOP_K_RESULTS", "5"), 5)
     )
+
+    # Logging Configuration
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
+    log_format: str = field(
+        default_factory=lambda: os.getenv("LOG_FORMAT", "standard")  # "standard" or "json"
+    )
+    log_json: bool = field(
+        default_factory=lambda: _safe_bool(os.getenv("LOG_JSON", "false"), False)
+    )
+
+    # CORS Configuration
+    # Comma-separated list of allowed origins, or "*" for all origins
+    cors_origins: List[str] = field(
+        default_factory=lambda: _parse_cors_origins(
+            os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")
+        )
+    )
+    cors_allow_credentials: bool = field(
+        default_factory=lambda: _safe_bool(os.getenv("CORS_ALLOW_CREDENTIALS", "true"), True)
+    )
 
     # Router Configuration
     local_companies: List[str] = field(default_factory=lambda: ["lyft"])
