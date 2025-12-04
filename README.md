@@ -32,12 +32,9 @@ flowchart TB
         SC --> FAISS
     end
 
-    subgraph "Routing Layer"
-        QR[Query Router]
-        RB[Rule-Based Router]
-        LLM_R[LLM Router]
-        QR --> RB
-        RB -->|Complex Query| LLM_R
+    subgraph "LLM Routing Layer"
+        LLM_R[LLM Router<br/>GPT-4o-mini]
+        LLM_R -->|Classify| DECISION{Query Type}
     end
 
     subgraph "Retrieval Layer"
@@ -57,12 +54,12 @@ flowchart TB
 
     U --> SC
     SC -->|Cache Hit| R[Response]
-    SC -->|Cache Miss| QR
-    QR -->|LOCAL_10K| VS
-    QR -->|LOCAL_OPENAI| VS
-    QR -->|WEB_SEARCH| WS
-    QR -->|HYBRID| VS
-    QR -->|HYBRID| WS
+    SC -->|Cache Miss| LLM_R
+    DECISION -->|OPENAI_QUERY| VS
+    DECISION -->|10K_DOCUMENT_QUERY| VS
+    DECISION -->|INTERNET_QUERY| WS
+    DECISION -->|HYBRID| VS
+    DECISION -->|HYBRID| WS
     VS --> RAG
     WS --> RAG
     RAG --> R
@@ -76,7 +73,7 @@ sequenceDiagram
     participant U as User
     participant P as RAG Pipeline
     participant C as Semantic Cache
-    participant R as Query Router
+    participant R as LLM Router (GPT-4o-mini)
     participant V as Vector Store
     participant W as Web Search
     participant L as LLM (GPT)
@@ -89,13 +86,16 @@ sequenceDiagram
         P-->>U: Return Response
     else Cache Miss
         C-->>P: No Match
-        P->>R: Route Query
-        R-->>P: Routing Decision
+        P->>R: Classify Query
+        R-->>P: Classification + Confidence
 
-        alt LOCAL_10K
+        alt OPENAI_QUERY
+            P->>V: Search OpenAI Docs
+            V-->>P: Documents
+        else 10K_DOCUMENT_QUERY
             P->>V: Search 10-K Collection
             V-->>P: Documents
-        else WEB_SEARCH
+        else INTERNET_QUERY
             P->>W: Search DuckDuckGo
             W-->>P: Web Results
         else HYBRID
@@ -117,17 +117,17 @@ sequenceDiagram
 ```mermaid
 graph LR
     subgraph "Core Components"
-        CONFIG[config.py<br/>Configuration]
-        EP[embedding_provider.py<br/>Shared Embeddings]
+        CONFIG[settings.py<br/>Configuration]
+        EP[sentence_transformer.py<br/>Shared Embeddings]
     end
 
     subgraph "Data Layer"
-        VS[vector_store.py<br/>Qdrant Manager]
+        VS[qdrant_retriever.py<br/>Qdrant Manager]
         SC[semantic_cache.py<br/>FAISS Cache]
     end
 
     subgraph "Intelligence Layer"
-        RT[router.py<br/>Query Router]
+        RT[llm_router.py<br/>LLM Router<br/>GPT-4o-mini]
         WS[web_search.py<br/>DuckDuckGo]
     end
 
@@ -138,6 +138,7 @@ graph LR
     subgraph "Interfaces"
         APP[app.py<br/>Streamlit UI]
         CLI[main.py<br/>CLI]
+        API[api.py<br/>FastAPI]
     end
 
     CONFIG --> EP
@@ -156,31 +157,33 @@ graph LR
 
     RAG --> APP
     RAG --> CLI
+    RAG --> API
 ```
 
-### Query Router Decision Flow
+### LLM Router Classification
 
 ```mermaid
 flowchart TD
-    Q[Query Received] --> WI{Web Indicators?<br/>latest, today, 2024...}
+    Q[Query Received] --> LLM[LLM Router<br/>GPT-4o-mini]
 
-    WI -->|Yes| HLC{Has Local<br/>Company?}
-    HLC -->|Yes| HYBRID[HYBRID<br/>Local + Web]
-    HLC -->|No| WEB[WEB_SEARCH]
+    LLM -->|Analyze Query| PROMPT[Classification Prompt]
+    PROMPT --> JSON[JSON Response]
 
-    WI -->|No| OAI{OpenAI<br/>Keywords?}
-    OAI -->|Yes| OPENAI[LOCAL_OPENAI]
+    JSON --> DECISION{Query Classification}
 
-    OAI -->|No| FIN{Financial<br/>Keywords?}
-    FIN -->|Yes| LC{Local Company<br/>Mentioned?}
+    DECISION -->|OpenAI/AI Topics| OPENAI[OPENAI_QUERY<br/>Search OpenAI Docs]
+    DECISION -->|Company Financials| TENK[10K_DOCUMENT_QUERY<br/>Search 10-K Filings]
+    DECISION -->|Current Events| WEB[INTERNET_QUERY<br/>Web Search]
+    DECISION -->|Both Needed| HYBRID[HYBRID<br/>Local + Web]
 
-    LC -->|Only Local| LOCAL[LOCAL_10K]
-    LC -->|External Company| WEBF[WEB_SEARCH]
-    LC -->|Both Local + External| HYBRIDF[HYBRID]
-
-    FIN -->|No| LLM{LLM Router}
-    LLM --> DECISION[Final Decision]
+    subgraph "LLM Classification Output"
+        JSON --> ACTION[action: classification]
+        JSON --> REASON[reason: explanation]
+        JSON --> CONF[confidence: 0.0-1.0]
+    end
 ```
+
+The LLM router uses pure GPT-4o-mini intelligence to classify queries - no keyword matching or rule-based logic. This provides more accurate and context-aware routing decisions.
 
 ## Installation
 
