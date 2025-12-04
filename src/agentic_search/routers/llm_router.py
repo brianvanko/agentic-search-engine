@@ -11,44 +11,51 @@ logger = logging.getLogger(__name__)
 
 
 class LLMRouter(BaseRouter):
-    """LLM-based query router for complex routing decisions.
+    """LLM-based query router for intelligent query classification.
 
-    Uses an LLM to classify queries that cannot be handled by rule-based
-    routing. More flexible but slower and more expensive.
+    Uses an LLM to classify queries and determine the best data source.
+    This is the primary router - no keyword matching, pure LLM intelligence.
 
     Example:
         llm = OpenAILLM(api_key="sk-...")
         router = LLMRouter(llm=llm)
-        decision = router.route("Should I invest in tech stocks?")
+        decision = router.route("What is Lyft's revenue?")
     """
 
-    ROUTING_PROMPT = """You are a query router for a search engine. Analyze the query and determine the best data source.
+    ROUTING_PROMPT = """You are a query classification assistant. Your task is to analyze the user's query and determine the most appropriate action.
 
-Available data sources:
-1. LOCAL_10K: Annual 10-K financial filings (financial statements, risk factors, business descriptions)
-2. LOCAL_OPENAI: OpenAI documentation (agents, APIs, models, embeddings, AI development)
-3. WEB_SEARCH: Live internet search (current events, news, real-time data)
-4. HYBRID: Both local search and web search for comprehensive answers
+Based on the query, classify it into ONE of the following categories:
 
-Respond with JSON:
+1. OPENAI_QUERY: Questions about OpenAI, GPT models, AI agents, embeddings, APIs, or AI development topics.
+   Examples: "How do I use the OpenAI API?", "What is an AI agent?", "Explain embeddings"
+
+2. 10K_DOCUMENT_QUERY: Questions about company financials, SEC 10-K filings, revenue, earnings, risk factors, or business operations from annual reports.
+   Examples: "What is Lyft's revenue?", "What are the risk factors in the 10-K?", "Company financial performance"
+
+3. INTERNET_QUERY: Questions requiring current/real-time information, news, recent events, or data not in our local documents.
+   Examples: "Latest Tesla stock price", "Recent news about AI", "What happened today in tech?"
+
+4. HYBRID: Questions that need BOTH local document data AND current internet information for a complete answer.
+   Examples: "Compare Lyft's 10-K revenue to their latest quarterly report", "How has the company changed since their last filing?"
+
+Respond with JSON only:
 {{
-    "intent": "LOCAL_10K" | "LOCAL_OPENAI" | "WEB_SEARCH" | "HYBRID",
-    "confidence": 0.0-1.0,
-    "reason": "Brief explanation",
-    "search_query": "Optimized search query",
-    "requires_web": true/false,
-    "keywords": ["key", "terms"]
+    "action": "OPENAI_QUERY" | "10K_DOCUMENT_QUERY" | "INTERNET_QUERY" | "HYBRID",
+    "reason": "Brief explanation of why this classification was chosen",
+    "confidence": 0.0-1.0
 }}
-
-Guidelines:
-- LOCAL_10K: Company financials, revenue, earnings, risk factors, SEC filings
-- LOCAL_OPENAI: OpenAI, GPT models, agents, embeddings, API usage
-- WEB_SEARCH: Current events, latest news, real-time prices, recent announcements
-- HYBRID: Questions needing both historical data AND current information
 
 User Query: {query}
 
 JSON Response:"""
+
+    # Map from LLM response action to QueryIntent
+    ACTION_TO_INTENT = {
+        "OPENAI_QUERY": QueryIntent.LOCAL_OPENAI,
+        "10K_DOCUMENT_QUERY": QueryIntent.LOCAL_10K,
+        "INTERNET_QUERY": QueryIntent.WEB_SEARCH,
+        "HYBRID": QueryIntent.HYBRID,
+    }
 
     def __init__(
         self,
@@ -93,22 +100,22 @@ JSON Response:"""
             prompt = self.ROUTING_PROMPT.format(query=query)
             result = self._llm.generate_json(prompt, temperature=0.1)
 
-            intent_map = {
-                "LOCAL_10K": QueryIntent.LOCAL_10K,
-                "LOCAL_OPENAI": QueryIntent.LOCAL_OPENAI,
-                "WEB_SEARCH": QueryIntent.WEB_SEARCH,
-                "HYBRID": QueryIntent.HYBRID,
-            }
+            # Get the action from LLM response and map to QueryIntent
+            action = result.get("action", "10K_DOCUMENT_QUERY")
+            intent = self.ACTION_TO_INTENT.get(action, QueryIntent.LOCAL_10K)
 
-            intent = intent_map.get(result.get("intent", "LOCAL_10K"), QueryIntent.LOCAL_10K)
+            # Determine if web search is needed based on intent
+            requires_web = intent in (QueryIntent.WEB_SEARCH, QueryIntent.HYBRID)
+
+            logger.info(f"LLM classified query as: {action} -> {intent.value}")
 
             return RoutingDecision(
                 intent=intent,
                 confidence=result.get("confidence", 0.7),
                 reason=result.get("reason", "LLM classification"),
-                search_query=result.get("search_query", query),
-                requires_web=result.get("requires_web", False),
-                keywords=result.get("keywords", []),
+                search_query=query,
+                requires_web=requires_web,
+                keywords=[],
                 target_retrievers=self._retriever_mapping.get(intent, []),
             )
 

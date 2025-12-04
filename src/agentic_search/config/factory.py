@@ -95,16 +95,14 @@ def create_components(
         retrievers["web_search"] = web_retriever
         logger.info(f"Created retriever: web_search")
 
-    # Create router
-    from agentic_search.routers import RuleBasedRouter, LLMRouter, CompositeRouter
+    # Create router (LLM-only routing for intelligent classification)
+    from agentic_search.routers import LLMRouter
 
-    rule_router = RuleBasedRouter(local_companies=settings.local_companies)
-    llm_router = LLMRouter(llm=OpenAILLM(
+    router = LLMRouter(llm=OpenAILLM(
         api_key=settings.openai_api_key,
         model=settings.openai_model,
     ))
-    router = CompositeRouter(rule_router=rule_router, llm_router=llm_router)
-    logger.info(f"Created router: {router.name}")
+    logger.info(f"Created router: {router.name} (LLM-only, no keyword matching)")
 
     # Create cache
     cache: Optional[BaseCache] = None

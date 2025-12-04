@@ -415,18 +415,18 @@ agentic-search-engine/
 
 ## Key Components
 
-### Query Router (`router.py`)
+### Query Router (`llm_router.py`)
 
-Determines the optimal data source for each query:
+Uses LLM-based classification (GPT-4o) to intelligently route queries to the optimal data source:
 
-| Intent | Data Source | Example Queries |
-|--------|-------------|-----------------|
-| `LOCAL_10K` | Qdrant 10-K collection | "Lyft revenue", "risk factors" |
-| `LOCAL_OPENAI` | Qdrant OpenAI docs | "GPT API", "embeddings" |
-| `WEB_SEARCH` | DuckDuckGo | "Latest news", "Apple earnings" |
-| `HYBRID` | Both local + web | "Compare Lyft to Uber" |
+| Classification | Data Source | Example Queries |
+|----------------|-------------|-----------------|
+| `OPENAI_QUERY` | Qdrant OpenAI docs | "How do I use the OpenAI API?", "What is an AI agent?" |
+| `10K_DOCUMENT_QUERY` | Qdrant 10-K collection | "What is Lyft's revenue?", "Risk factors in the 10-K" |
+| `INTERNET_QUERY` | DuckDuckGo | "Latest Tesla stock price", "Recent news about AI" |
+| `HYBRID` | Both local + web | "Compare Lyft's 10-K to their latest quarterly report" |
 
-Uses rule-based routing for common patterns and falls back to LLM routing for ambiguous queries.
+No keyword matching - pure LLM intelligence for accurate query classification.
 
 ### Semantic Cache (`semantic_cache.py`)
 
