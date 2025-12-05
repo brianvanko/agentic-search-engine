@@ -52,15 +52,15 @@ Context Documents:
 User Question: {question}
 
 Instructions:
-- Provide a clear, comprehensive answer based ONLY on the information in the context above
-- EXTRACT and PRESENT the actual facts, names, numbers, and details from each source
-- For lists (like "top movies" or "best products"): compile the actual items mentioned across sources
-- For news/current events: summarize what happened, who was involved, when, and key figures
-- For financial data: be precise with numbers, percentages, and dates
-- Synthesize information from multiple sources - combine and deduplicate
+- Provide a clear, comprehensive answer based on the information in the context above
+- EXTRACT and PRESENT the actual facts, names, numbers, and details from EVERY source (both local documents AND web search results)
+- Web search results contain real data - extract specific numbers, dates, and facts from them
+- For financial data: be precise with numbers, percentages, and dates from ALL sources
+- Synthesize information from multiple sources - combine local document data with web search data
 - You MAY cite sources at the end, but present the actual information directly
 - NEVER say "check this link" or "visit this URL" - extract and present information directly
-- If sources contain partial information, combine what you can find and note gaps
+- If a web search result mentions specific figures (like "$55 billion" or "7.2% decline"), USE those figures in your answer
+- If sources contain partial information, combine what you can find and note any remaining gaps
 
 Answer:"""
 
@@ -192,13 +192,27 @@ Answer:"""
         retriever_name: str,
         query: str,
         top_k: int,
+        web_search_query: Optional[str] = None,
     ) -> Tuple[str, List[Document]]:
-        """Retrieve from a single retriever (for parallel execution)."""
+        """Retrieve from a single retriever (for parallel execution).
+
+        Args:
+            retriever_name: Name of the retriever to use.
+            query: The user's original query.
+            top_k: Number of documents to retrieve.
+            web_search_query: Optional targeted query for web search retrievers.
+        """
         retriever = self._retrievers.get(retriever_name)
         if not retriever:
             return retriever_name, []
         try:
-            docs = retriever.retrieve(query, top_k=top_k)
+            # Use targeted web_search_query for web retrievers if available
+            effective_query = query
+            if web_search_query and "web" in retriever_name.lower():
+                effective_query = web_search_query
+                logger.info(f"Using targeted web search query: {effective_query}")
+
+            docs = retriever.retrieve(effective_query, top_k=top_k)
             logger.debug(f"Retrieved {len(docs)} from {retriever_name}")
             return retriever_name, docs
         except Exception as e:
@@ -232,16 +246,21 @@ Answer:"""
         # Filter to valid retrievers
         valid_retrievers = [r for r in target_retrievers if r in self._retrievers]
 
+        # Get targeted web search query if available
+        web_search_query = getattr(routing, "web_search_query", None)
+
         if len(valid_retrievers) == 1:
             # Single retriever - no need for thread pool overhead
-            _, docs = self._retrieve_from_single(valid_retrievers[0], query, per_retriever_k)
+            _, docs = self._retrieve_from_single(
+                valid_retrievers[0], query, per_retriever_k, web_search_query
+            )
             documents.extend(docs)
         elif len(valid_retrievers) > 1:
             # Multiple retrievers - use parallel execution
             with ThreadPoolExecutor(max_workers=len(valid_retrievers)) as executor:
                 futures = {
                     executor.submit(
-                        self._retrieve_from_single, name, query, per_retriever_k
+                        self._retrieve_from_single, name, query, per_retriever_k, web_search_query
                     ): name
                     for name in valid_retrievers
                 }

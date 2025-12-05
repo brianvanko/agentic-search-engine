@@ -57,9 +57,23 @@ class WebSearchRetriever(BaseRetriever):
     def source_type(self) -> str:
         return "web_search"
 
+    # Keywords that indicate historical/archival queries (should use TEXT search)
+    HISTORICAL_KEYWORDS = [
+        "2019", "2020", "2021", "2022", "2018", "2017", "2016",
+        "fiscal year", "annual report", "10-k", "10k",
+    ]
+
     def _is_news_query(self, query: str) -> bool:
-        """Check if the query is asking for news/current events."""
+        """Check if the query is asking for news/current events.
+
+        Returns False for historical queries that need archival data.
+        """
         query_lower = query.lower()
+
+        # Historical queries should use TEXT search for better results
+        if any(kw in query_lower for kw in self.HISTORICAL_KEYWORDS):
+            return False
+
         return any(kw in query_lower for kw in self.NEWS_KEYWORDS)
 
     def retrieve(

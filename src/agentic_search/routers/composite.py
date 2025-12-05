@@ -1,4 +1,4 @@
-"""Composite router that combines rule-based and LLM routing."""
+"""Composite router that combines LLM and rule-based routing."""
 
 import logging
 from typing import List, Optional
@@ -10,36 +10,36 @@ logger = logging.getLogger(__name__)
 
 
 class CompositeRouter(BaseRouter):
-    """Composite router that tries rule-based routing first, then LLM.
+    """Composite router that tries LLM routing first, with rule-based fallback.
 
     This is the recommended router for production use. It provides:
-    - Fast routing for obvious cases (rule-based)
-    - Flexible routing for complex cases (LLM)
-    - Graceful fallback if LLM fails
+    - Intelligent routing for all queries (LLM)
+    - Graceful fallback to rules if LLM fails (API down, timeout, error)
+    - Deterministic backup ensures queries are always routed
 
     Example:
         rule_router = RuleBasedRouter(local_companies=["lyft"])
         llm_router = LLMRouter(llm=OpenAILLM(...))
         router = CompositeRouter(
-            rule_router=rule_router,
             llm_router=llm_router,
+            rule_router=rule_router,
         )
         decision = router.route("What is Lyft's revenue?")
     """
 
     def __init__(
         self,
-        rule_router: BaseRouter,
         llm_router: Optional[BaseRouter] = None,
+        rule_router: Optional[BaseRouter] = None,
     ):
         """Initialize composite router.
 
         Args:
-            rule_router: Fast rule-based router.
-            llm_router: LLM router for fallback (optional).
+            llm_router: LLM router for intelligent routing (primary).
+            rule_router: Rule-based router for fallback.
         """
-        self._rule_router = rule_router
         self._llm_router = llm_router
+        self._rule_router = rule_router
 
     @property
     def name(self) -> str:
@@ -51,7 +51,7 @@ class CompositeRouter(BaseRouter):
         available_retrievers: Optional[List[str]] = None,
         **kwargs,
     ) -> RoutingDecision:
-        """Route a query using rule-based first, then LLM fallback.
+        """Route a query using LLM first, then rule-based fallback.
 
         Args:
             query: The user's query.
@@ -61,33 +61,36 @@ class CompositeRouter(BaseRouter):
         Returns:
             RoutingDecision with routing information.
         """
-        # Try rule-based routing first
-        decision = self._rule_router.route(query, available_retrievers, **kwargs)
-
-        if decision is not None:
-            logger.info(
-                f"Rule-based routing: {decision.intent.value} "
-                f"(confidence: {decision.confidence:.0%})"
-            )
-            return decision
-
-        # Fall back to LLM routing
+        # Try LLM routing first
         if self._llm_router is not None:
-            decision = self._llm_router.route(query, available_retrievers, **kwargs)
-            logger.info(
-                f"LLM routing: {decision.intent.value} "
-                f"(confidence: {decision.confidence:.0%})"
-            )
-            return decision
+            try:
+                decision = self._llm_router.route(query, available_retrievers, **kwargs)
+                logger.info(
+                    f"LLM routing: {decision.intent.value} "
+                    f"(confidence: {decision.confidence:.0%})"
+                )
+                return decision
+            except Exception as e:
+                logger.warning(f"LLM routing failed: {e}, falling back to rule-based")
 
-        # No LLM router available - return default
+        # Fall back to rule-based routing
+        if self._rule_router is not None:
+            decision = self._rule_router.route(query, available_retrievers, **kwargs)
+            if decision is not None:
+                logger.info(
+                    f"Rule-based fallback: {decision.intent.value} "
+                    f"(confidence: {decision.confidence:.0%})"
+                )
+                return decision
+
+        # No routers available or rule-based returned None - return default
         from agentic_search.core.models import QueryIntent
 
-        logger.warning("No LLM router available, using default routing")
+        logger.warning("All routers failed, using default routing")
         return RoutingDecision(
             intent=QueryIntent.LOCAL_10K,
             confidence=0.5,
-            reason="Default routing (no LLM router configured)",
+            reason="Default routing (all routers failed or unavailable)",
             search_query=query,
             requires_web=False,
             keywords=[],

@@ -30,19 +30,22 @@ Based on the query, classify it into ONE of the following categories:
    Examples: "How do I use the OpenAI API?", "What is an AI agent?", "Explain embeddings"
 
 2. 10K_DOCUMENT_QUERY: Questions about company financials, SEC 10-K filings, revenue, earnings, risk factors, or business operations from annual reports.
-   Examples: "What is Lyft's revenue?", "What are the risk factors in the 10-K?", "Company financial performance"
+   Note: Our local database only contains 10-K filings for Lyft.
+   Examples: "What is Lyft's revenue?", "What are the risk factors in the 10-K?", "Lyft financial performance"
 
 3. INTERNET_QUERY: Questions requiring current/real-time information, news, recent events, or data not in our local documents.
    Examples: "Latest Tesla stock price", "Recent news about AI", "What happened today in tech?"
 
 4. HYBRID: Questions that need BOTH local document data AND current internet information for a complete answer.
-   Examples: "Compare Lyft's 10-K revenue to their latest quarterly report", "How has the company changed since their last filing?"
+   Use this when comparing Lyft data (local) with other companies (web search needed).
+   Examples: "Compare Lyft's 10-K revenue to their latest quarterly report", "Lyft vs Apple earnings"
 
 Respond with JSON only:
 {{
     "action": "OPENAI_QUERY" | "10K_DOCUMENT_QUERY" | "INTERNET_QUERY" | "HYBRID",
     "reason": "Brief explanation of why this classification was chosen",
-    "confidence": 0.0-1.0
+    "confidence": 0.0-1.0,
+    "web_search_query": "For HYBRID queries only: a focused search query to find the information NOT available locally. Be specific with company names (e.g., 'Apple Inc AAPL 2019 fiscal year revenue net income'). Null for non-HYBRID."
 }}
 
 User Query: {query}
@@ -107,7 +110,14 @@ JSON Response:"""
             # Determine if web search is needed based on intent
             requires_web = intent in (QueryIntent.WEB_SEARCH, QueryIntent.HYBRID)
 
+            # Get targeted web search query for HYBRID cases
+            web_search_query = result.get("web_search_query")
+            if web_search_query and web_search_query.lower() in ("null", "none", ""):
+                web_search_query = None
+
             logger.info(f"LLM classified query as: {action} -> {intent.value}")
+            if web_search_query:
+                logger.info(f"Targeted web search query: {web_search_query}")
 
             return RoutingDecision(
                 intent=intent,
@@ -117,6 +127,7 @@ JSON Response:"""
                 requires_web=requires_web,
                 keywords=[],
                 target_retrievers=self._retriever_mapping.get(intent, []),
+                web_search_query=web_search_query,
             )
 
         except Exception as e:

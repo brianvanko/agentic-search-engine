@@ -43,6 +43,7 @@ class RoutingDecision:
     requires_web: bool = False
     keywords: List[str] = field(default_factory=list)
     target_retrievers: List[str] = field(default_factory=list)
+    web_search_query: Optional[str] = None  # Targeted query for web search in HYBRID cases
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -53,6 +54,7 @@ class RoutingDecision:
             "requires_web": self.requires_web,
             "keywords": self.keywords,
             "target_retrievers": self.target_retrievers,
+            "web_search_query": self.web_search_query,
         }
 
 

@@ -120,6 +120,7 @@ class SemanticCache(BaseCache):
 
         if not self._cache["questions"]:
             self._stats.cache_misses += 1
+            logger.debug("Cache lookup: empty cache, returning miss")
             return None, False, {}
 
         # Ensure index is initialized
@@ -136,7 +137,9 @@ class SemanticCache(BaseCache):
             distance = distances[0][0]
             idx = indices[0][0]
 
-            if idx >= 0 and distance < self._distance_threshold:
+            # Validate index is within bounds of all cache lists
+            cache_size = len(self._cache["questions"])
+            if idx >= 0 and idx < cache_size and distance < self._distance_threshold:
                 # Cache hit!
                 self._stats.cache_hits += 1
                 self._stats.total_time_saved_ms += self.ESTIMATED_RAG_TIME_MS
@@ -160,6 +163,10 @@ class SemanticCache(BaseCache):
                     "index": int(idx),
                 }
 
+            logger.debug(
+                f"Cache lookup miss: distance={distance:.4f} > threshold={self._distance_threshold:.4f}, "
+                f"idx={idx}, cache_size={cache_size}"
+            )
             self._stats.cache_misses += 1
             return None, False, {}
 
@@ -192,7 +199,12 @@ class SemanticCache(BaseCache):
             if len(self._cache["questions"]) >= self._max_size:
                 self._evict_oldest(int(self._max_size * 0.1))
 
-            # Add to cache
+            # Initialize FAISS index first if needed (before adding to cache dict)
+            # This prevents double-adding when _init_index rebuilds from embeddings
+            if self._index is None:
+                self._init_index()
+
+            # Add to cache dict
             self._cache["questions"].append(question)
             self._cache["responses"].append(response)
             self._cache["embeddings"].append(embedding.tolist())
@@ -200,15 +212,16 @@ class SemanticCache(BaseCache):
             self._cache["created_at"].append(datetime.now().isoformat())
 
             # Add to FAISS index
-            if self._index is None:
-                self._init_index()
             self._index.add(embedding.reshape(1, -1))
 
             # Persist to disk
             if self._persist and self._cache_file:
                 self._save_cache()
 
-            logger.debug(f"Cached response for: '{question[:50]}...'")
+            logger.info(
+                f"Cached response for: '{question[:50]}...' "
+                f"(cache_size={len(self._cache['questions'])}, index_size={self._index.ntotal})"
+            )
 
         except Exception as e:
             logger.warning(f"Failed to store in cache: {e}")
